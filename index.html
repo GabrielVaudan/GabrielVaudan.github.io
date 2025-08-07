@@ -1,83 +1,210 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <title>Mapa en tiempo real - Algorix</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://cdn.jsdelivr.net/npm/firebase@9.6.10/firebase-app-compat.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/firebase@9.6.10/firebase-firestore-compat.js"></script>
-  <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
-  <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet" />
+  <meta charset="utf-8">
+  <title>Mapa de Firebase</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <script src="https://cdn.jsdelivr.net/npm/firebase@9.6.1/firebase-app-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/firebase@9.6.1/firebase-firestore-compat.js"></script>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
   <style>
-    body, html { margin: 0; padding: 0; height: 100%; }
-    #map { width: 100%; height: 100%; }
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: Arial, sans-serif;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    .filter-panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      padding: 10px;
+      z-index: 1;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+    }
+
+    .filter-panel input[type="text"] {
+      width: 93%;
+      margin-bottom: 10px;
+      padding: 5px;
+    }
+
+    .checkbox-group {
+      display: flex;
+      flex-direction: column;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div class="filter-panel">
+    <input type="text" id="searchInput" placeholder="Buscar por nombre, municipio...">
+    <div class="checkbox-group">
+      <label><input type="checkbox" class="collection-filter" value="Registros" checked> Registros</label>
+      <label><input type="checkbox" class="collection-filter" value="CasasAmigas" checked> Casas Amigas</label>
+      <label><input type="checkbox" class="collection-filter" value="EventosEspeciales" checked> Eventos Especiales</label>
+      <label><input type="checkbox" class="collection-filter" value="Indecisos" checked> Indecisos</label>
+      <label><input type="checkbox" class="collection-filter" value="Lideres" checked> Líderes</label>
+      <label><input type="checkbox" class="collection-filter" value="Opositores" checked> Opositores</label>
+      <label><input type="checkbox" class="collection-filter" value="Simpatizantes" checked> Simpatizantes</label>
+    </div>
+  </div>
 
   <script>
-    // Tu clave de Mapbox
-    mapboxgl.accessToken = 'pk.eyJ1Ijoic2Vua3MiLCJhIjoiY21jbnBleWJmMDk4MDJqcHVtOWxzcWJmbSJ9.G9ntEH2e6H3eLYmD-UZu7w';
-
-    // Inicializa el mapa
-    const map = new mapboxgl.Map({
-      container: 'map',
-      style: 'mapbox://styles/mapbox/streets-v11',
-      center: [-89.6666, 20.9958], // Coordenadas iniciales
-      zoom: 14
-    });
-
-    // Configuración de Firebase
+    // Firebase config
     const firebaseConfig = {
       apiKey: "AIzaSyBHjde8Hf5dGXX2KIOB18cLwmIdieO3JzA",
       authDomain: "algorix-db.firebaseapp.com",
       projectId: "algorix-db",
       storageBucket: "algorix-db.appspot.com",
       messagingSenderId: "134169840314",
-      appId: "1:134169840314:web:xxx", // opcional
+      appId: "1:134169840314:web:xxxxx" // opcional
     };
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    const colecciones = [
-      { nombre: "Simpatizantes", color: "#1E90FF" },
-      { nombre: "CasasAmigas", color: "#32CD32" },
-      { nombre: "Registros", color: "#FFD700" },
-      { nombre: "Opositores", color: "#FF4500" },
-      { nombre: "Lideres", color: "#800080" },
-      { nombre: "Indecisos", color: "#A9A9A9" },
+    // Mapbox config
+    mapboxgl.accessToken = 'pk.eyJ1Ijoic2Vua3MiLCJhIjoiY21jbnBleWJmMDk4MDJqcHVtOWxzcWJmbSJ9.G9ntEH2e6H3eLYmD-UZu7w';
+
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/streets-v11',
+      center: [-89.6665, 20.9958], // Yucatán
+      zoom: 13
+    });
+
+    const colors = {
+      Registros: "blue",
+      CasasAmigas: "green",
+      EventosEspeciales: "black",
+      Indecisos: "orange",
+      Lideres: "brown",
+      Opositores: "Red",
+      Simpatizantes: "purple"
+    };
+
+    const markers = [];
+
+    const collections = [
+      "Registros",
+      "CasasAmigas",
+      "EventosEspeciales",
+      "Indecisos",
+      "Lideres",
+      "Opositores",
+      "Simpatizantes"
     ];
 
-    function agregarMarcador(data, color) {
-      const ubicacion = data.ubicacion;
-      if (!ubicacion || !ubicacion.latitude || !ubicacion.longitude) return;
+    const customMarkers = {};
 
-      const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-        <strong>${data.nombre || "Sin nombre"}</strong><br/>
-        ${data.apellidoPaterno || ""} ${data.apellidoMaterno || ""}<br/>
-        Sección: ${data.seccion || "N/A"}<br/>
-        Tel: ${data.telefono || "N/A"}<br/>
-        Edad: ${data.edad || "N/A"}
-      `);
+    function createMarker(color) {
+  const el = document.createElement('div');
+  el.style.width = '20px';
+  el.style.height = '20px';
+  el.style.backgroundColor = color;
+  el.style.borderRadius = '50%';
+  el.style.border = '2px solid white';
+  el.style.boxShadow = '0 0 6px rgba(0,0,0,0.3)';
+  el.style.cursor = 'pointer';
+  return el;
+}
 
-      new mapboxgl.Marker({ color })
-        .setLngLat([ubicacion.longitude, ubicacion.latitude])
-        .setPopup(popup)
-        .addTo(map);
+    function formatTimestamp(timestamp) {
+      if (!timestamp?.seconds) return "N/A";
+      const date = new Date(timestamp.seconds * 1000);
+      return date.toLocaleString('es-MX', {
+        timeZone: 'America/Merida',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      });
     }
 
-    colecciones.forEach(({ nombre, color }) => {
-      db.collection(nombre).onSnapshot(snapshot => {
-        snapshot.docChanges().forEach(change => {
-          if (change.type === "added" || change.type === "modified") {
-            const data = change.doc.data();
-            agregarMarcador(data, color);
-          }
+    function loadAllMarkers() {
+      markers.forEach(marker => marker.remove());
+      markers.length = 0;
+
+      collections.forEach(col => {
+        db.collection(col).onSnapshot(snapshot => {
+          snapshot.docChanges().forEach(change => {
+            const doc = change.doc;
+            const data = doc.data();
+            const ubicacion = data.ubicacion;
+
+            if (ubicacion?.latitude && ubicacion?.longitude) {
+              const marker = new mapboxgl.Marker(createMarker(colors[col]))
+                .setLngLat([ubicacion.longitude, ubicacion.latitude])
+                .setPopup(new mapboxgl.Popup().setHTML(`
+                  <strong>${data.nombre || "Sin nombre"}</strong><br/>
+                  ${data.apellidoPaterno || ""} ${data.apellidoMaterno || ""}<br/>
+                  Dirección: ${data.direccion || "N/A"}<br/>
+                  Colonia: ${data.colonia || "N/A"}<br/>
+                  Municipio: ${data.municipio || "N/A"}<br/>
+                  Teléfono: ${data.telefono || "N/A"}<br/>
+                  Fecha de nacimiento: ${data.fechaNacimiento || "N/A"}<br/>
+                  Sexo: ${data.sexo || "N/A"}<br/>
+                  Distrito: ${data.distrito || "N/A"}<br/>
+                  Sección: ${data.seccion || "N/A"}<br/>
+                  Fecha y hora de registro: ${formatTimestamp(data.fechaHora)}<br/>
+                  Tomado por: ${data.idAuxiliar || "N/A"}<br/>
+                  Tomó dato en domicilio: ${data.tomoDatoEnDomicilio || "N/A"}<br/>
+                  <em>${col}</em>
+                `))
+                .addTo(map);
+              
+              marker._data = {
+                ...data,
+                tipo: col,
+                marker
+              };
+
+              markers.push(marker);
+            }
+          });
         });
       });
+    }
+
+    function filterMarkers() {
+      const selectedCollections = Array.from(document.querySelectorAll('.collection-filter:checked')).map(c => c.value);
+      const searchText = document.getElementById('searchInput').value.toLowerCase();
+
+      markers.forEach(m => {
+        const info = m._data;
+        const matchSearch = Object.values(info)
+          .some(val => typeof val === 'string' && val.toLowerCase().includes(searchText));
+
+        const matchCollection = selectedCollections.includes(info.tipo);
+
+        if (matchSearch && matchCollection) {
+          m.addTo(map);
+        } else {
+          m.remove();
+        }
+      });
+    }
+
+    document.querySelectorAll('.collection-filter').forEach(cb => {
+      cb.addEventListener('change', filterMarkers);
     });
+
+    document.getElementById('searchInput').addEventListener('input', filterMarkers);
+
+    loadAllMarkers();
   </script>
 </body>
 </html>
